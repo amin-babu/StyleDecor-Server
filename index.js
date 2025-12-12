@@ -26,8 +26,21 @@ app.get('/', (req, res) => {
 async function run() {
   try {
     await client.connect();
-    
-    
+
+    const db = client.db('StyleDecorDB');
+    const servicesCollection = db.collection('services');
+
+    // service related API
+    app.get('/services/home', async (req, res) => {
+      const result = await servicesCollection.find().limit(8).toArray();
+      res.send(result);
+    });
+
+    app.get('/services', async (req, res) => {
+      const result = await servicesCollection.find().toArray();
+      res.send(result);
+    });
+
 
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
