@@ -3,7 +3,7 @@ const app = express();
 const cors = require('cors');
 const port = process.env.PORT || 3000;
 require('dotenv').config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 // middleware
 app.use(cors());
@@ -29,6 +29,7 @@ async function run() {
 
     const db = client.db('StyleDecorDB');
     const servicesCollection = db.collection('services');
+    const bookingCollection = db.collection('bookings');
 
     // service related API
     app.get('/services/home', async (req, res) => {
@@ -41,6 +42,19 @@ async function run() {
       res.send(result);
     });
 
+    app.get('/services/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await servicesCollection.findOne(query);
+      res.send(result);
+    });
+
+    // booking
+    app.post("/bookings", async (req, res) => {
+      const booking = req.body;
+      const result = await bookingCollection.insertOne(booking);
+      res.send(result);
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
