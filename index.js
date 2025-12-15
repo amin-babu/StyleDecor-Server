@@ -56,6 +56,21 @@ async function run() {
       res.send(result);
     });
 
+    app.get('/bookings', async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) {
+          return res.status(400).send({ message: 'Email is required' });
+        }
+        const query = { userEmail: email };
+        const bookings = await bookingCollection.find(query).toArray();
+        res.send(bookings);
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to get bookings' });
+      }
+    });
+
+
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
