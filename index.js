@@ -82,24 +82,30 @@ async function run() {
     // peyment related APIs
     app.post('/create-checkout-session', async (req, res) => {
       const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.servicePrice) * 100;
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
-            // Provide the exact Price ID (for example, price_1234) of the product you want to sell
             price_data: {
               currency: 'BDT',
               product_data: {
                 name: paymentInfo.serviceName,
               },
-              unit_amount: paymentInfo.servicePrice * 100,
+              unit_amount: amount,
             },
             quantity: 1,
           },
         ],
         customer_email: paymentInfo.userEmail,
         mode: 'payment',
+        metadata: {
+          bookingId: paymentInfo.bookingId
+        },
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
-      })
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+      });
+      console.log(session);
+      res.send({ url: session.url });
     });
 
     await client.db("admin").command({ ping: 1 });
