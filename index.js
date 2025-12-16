@@ -5,6 +5,8 @@ const port = process.env.PORT || 3000;
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
+
 // middleware
 app.use(cors());
 app.use(express.json());
@@ -70,6 +72,35 @@ async function run() {
       }
     });
 
+    app.delete('/bookings/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await bookingCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    // peyment related APIs
+    app.post('/create-checkout-session', async (req, res) => {
+      const paymentInfo = req.body;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            // Provide the exact Price ID (for example, price_1234) of the product you want to sell
+            price_data: {
+              currency: 'BDT',
+              product_data: {
+                name: paymentInfo.serviceName,
+              },
+              unit_amount: paymentInfo.servicePrice * 100,
+            },
+            quantity: 1,
+          },
+        ],
+        customer_email: paymentInfo.userEmail,
+        mode: 'payment',
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
+      })
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
