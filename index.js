@@ -89,7 +89,7 @@ async function run() {
             price_data: {
               currency: 'BDT',
               product_data: {
-                name: paymentInfo.serviceName,
+                name: `Please pay for ${paymentInfo.serviceName}`,
               },
               unit_amount: amount,
             },
@@ -101,11 +101,30 @@ async function run() {
         metadata: {
           bookingId: paymentInfo.bookingId
         },
-        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success`,
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
       });
       console.log(session);
       res.send({ url: session.url });
+    });
+
+    app.patch('/payment-success', async (req, res) => {
+      const sessionId = req.query.session_id;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      console.log('session retrieve', session);
+      if (session.payment_status === 'paid') {
+        const id = session.metadata.bookingId;
+        const query = { _id: new ObjectId(id) };
+        const update = {
+          $set: {
+            status: 'success',
+            paid: true
+          }
+        };
+        const result = await bookingCollection.updateOne(query, update);
+        res.send(result);
+      }
+      res.send({ success: false });
     });
 
     await client.db("admin").command({ ping: 1 });
