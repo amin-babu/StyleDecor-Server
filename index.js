@@ -32,6 +32,7 @@ async function run() {
     const db = client.db('StyleDecorDB');
     const servicesCollection = db.collection('services');
     const bookingCollection = db.collection('bookings');
+    const paymentCollection = db.collection('payments');
 
     // service related API
     app.get('/services/home', async (req, res) => {
@@ -99,7 +100,8 @@ async function run() {
         customer_email: paymentInfo.userEmail,
         mode: 'payment',
         metadata: {
-          bookingId: paymentInfo.bookingId
+          bookingId: paymentInfo.bookingId,
+          serviceName: paymentInfo.serviceName
         },
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
@@ -122,7 +124,23 @@ async function run() {
           }
         };
         const result = await bookingCollection.updateOne(query, update);
-        res.send(result);
+
+        const payment = {
+          amount: session.amount_total / 100,
+          currency: session.currency,
+          customerEmail: session.customer_email,
+          bookingId: session.metadata.bookingId,
+          serviceName: session.metadata.serviceName,
+          transactionId: session.payment_intent,
+          paymentStatus: session.payment_status,
+          paidAt: new Date(),
+          trackingId: ''
+        };
+
+        if (session.payment_status === 'paid') {
+          const resultPayment = await paymentCollection.insertOne(payment);
+          res.send({ success: true, modifyParcel: result, paymentInfo: resultPayment });
+        };
       }
       res.send({ success: false });
     });
