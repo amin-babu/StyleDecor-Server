@@ -7,7 +7,8 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const crypto = require("crypto");
 const admin = require("firebase-admin");
-const serviceAccount = require("./styledecor-firebase-adminsdk.json");
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -65,7 +66,63 @@ async function run() {
     const servicesCollection = db.collection('services');
     const bookingCollection = db.collection('bookings');
     const paymentCollection = db.collection('payments');
+    const userCollection = db.collection('users');
 
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const user = await userCollection.findOne({ email });
+      if (!user || user.role !== 'admin') {
+        return res.status(403).send({ message: 'Forbidden Access' });
+      }
+      next();
+    };
+
+    // users related APIs
+    app.post('/users', async (req, res) => {
+      const user = req.body;
+      user.role = 'user';
+      user.createdAt = new Date();
+      const email = user.email;
+      const userExist = await userCollection.findOne({ email });
+      if (userExist) {
+        return res.send({ message: 'User Exist' });
+      };
+
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    });
+
+    app.get('/users', verifyFBToken, async (req, res) => {
+      const cursor = userCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get('/users/:email', async (req, res) => {
+      const email = req.params.email;
+      const result = await userCollection.findOne({ email });
+      res.send(result);
+    });
+
+    app.get('/users/:email/role', async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await userCollection.findOne(query);
+      res.send({ role: user?.role || 'user' });
+    });
+
+    app.patch('/users/:id', async (req, res) => {
+      const id = req.params.id;
+      const roleInfo = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: roleInfo.role
+        }
+      };
+      const result = await userCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    });
 
     // service related API
     app.get('/services/home', async (req, res) => {
@@ -73,15 +130,62 @@ async function run() {
       res.send(result);
     });
 
-    app.get('/services', async (req, res) => {
+    app.get("/services", async (req, res) => {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+
+      const skip = (page - 1) * limit;
+
+      const total = await servicesCollection.countDocuments();
+      const services = await servicesCollection
+        .find()
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+
+      res.send({
+        total,
+        services,
+      });
+    });
+
+    app.get('/get-all-services', async (req, res) => {
       const result = await servicesCollection.find().toArray();
       res.send(result);
     });
+
 
     app.get('/services/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await servicesCollection.findOne(query);
+      res.send(result);
+    });
+
+    app.delete('/services/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await servicesCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    app.post('/services', verifyFBToken, async (req, res) => {
+      const service = req.body;
+      const result = await servicesCollection.insertOne(service);
+      res.send(result);
+    });
+
+    // update service
+    app.patch('/services/:id', verifyFBToken, async (req, res) => {
+      const id = req.params.id;
+      const updatedService = req.body;
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: updatedService
+      };
+
+      const result = await servicesCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
 
@@ -91,6 +195,25 @@ async function run() {
       const result = await bookingCollection.insertOne(booking);
       res.send(result);
     });
+
+    app.patch('/bookings/status/:id', async (req, res) => {
+      const id = req.params.id;
+      const { status, paidAt } = req.body;
+
+      const updateDoc = {
+        status,
+        paidAt,
+        paymentStatus: status === "completed" ? "paid" : "unpaid",
+      };
+
+      const result = await bookingCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateDoc }
+      );
+
+      res.send(result);
+    });
+
 
     app.get('/bookings', async (req, res) => {
       try {
@@ -105,6 +228,44 @@ async function run() {
         res.status(500).send({ message: 'Failed to get bookings' });
       }
     });
+
+    app.get('/manage-bookings', verifyFBToken, verifyAdmin, async (req, res) => {
+      const result = await bookingCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.patch('/manage-bookings/:id', async (req, res) => {
+      const id = req.params.id;
+      const { decoratorId } = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          decoratorId,
+          status: "assigned",
+          assignedAt: new Date()
+        }
+      }
+      const result = await bookingCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    });
+
+    app.get('/all-bookings', verifyFBToken, async (req, res) => {
+      const result = await bookingCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.patch('/bookings/status/:id', async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+
+      const result = await bookingCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } }
+      );
+
+      res.send(result);
+    });
+
 
     app.delete('/bookings/:id', async (req, res) => {
       const id = req.params.id;
@@ -216,13 +377,13 @@ async function run() {
           return res.status(403).send({ message: 'Forbidden Access' });
         };
       };
-      const cursor = paymentCollection.find(query);
+      const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // await client.close();
   }
